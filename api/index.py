@@ -10,12 +10,18 @@ import urllib.parse
 
 # Setup paths
 BASE_DIR = Path(__file__).resolve().parent.parent
-TMP_DIR = BASE_DIR / ".tmp"
+
+# VERCEL COMPATIBILITY
+if os.environ.get("VERCEL"):
+    TMP_DIR = Path("/tmp")
+else:
+    TMP_DIR = BASE_DIR / ".tmp"
+
 ARTICLES_FILE = TMP_DIR / "articles.json"
 
-if not os.path.exists(TMP_DIR):
+if not TMP_DIR.exists():
     try:
-        os.makedirs(TMP_DIR, exist_ok=True)
+        TMP_DIR.mkdir(parents=True, exist_ok=True)
     except:
         pass
 

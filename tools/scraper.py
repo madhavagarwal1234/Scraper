@@ -24,8 +24,21 @@ from bs4 import BeautifulSoup
 
 # ── Config ────────────────────────────────────────────────────────────────────
 BASE_DIR = Path(__file__).resolve().parent.parent
-TMP_DIR = BASE_DIR / ".tmp"
-TMP_DIR.mkdir(exist_ok=True)
+
+# VERCEL COMPATIBILITY: Serverless environments are read-only except for /tmp
+if os.environ.get("VERCEL"):
+    TMP_DIR = Path("/tmp")
+else:
+    TMP_DIR = BASE_DIR / ".tmp"
+
+if not TMP_DIR.exists():
+    try:
+        TMP_DIR.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        # Fallback to /tmp if local .tmp is weirdly protected
+        TMP_DIR = Path("/tmp")
+        TMP_DIR.mkdir(parents=True, exist_ok=True)
+
 OUTPUT_FILE = TMP_DIR / "articles.json"
 
 HEADERS = {
