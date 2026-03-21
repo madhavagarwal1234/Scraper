@@ -326,6 +326,54 @@ def scrape_reddit() -> tuple[list[dict], list[str]]:
     return articles, errors
 
 
+def scrape_reddit_rss() -> tuple[list[dict], list[str]]:
+    """Backup Reddit scraper using RSS feeds (often less restricted than JSON API)."""
+    articles, errors = [], []
+    subreddits = ["artificial", "MachineLearning", "AINews"]
+    for sub in subreddits:
+        url = f"https://www.reddit.com/r/{sub}/new/.rss"
+        print(f"  [Reddit RSS] Fetching r/{sub} ...")
+        try:
+            resp = requests.get(url, headers=HEADERS, timeout=15)
+            if resp.status_code != 200:
+                continue
+            soup = BeautifulSoup(resp.text, "xml")
+            entries = soup.find_all("entry")
+            for entry in entries:
+                up_el = entry.find("updated")
+                if not up_el: continue
+                pub_date = datetime.fromisoformat(up_el.text.replace("Z", "+00:00"))
+                if not is_within_24h(pub_date): continue
+
+                tit_el = entry.find("title")
+                title = tit_el.text if tit_el else "Reddit Post"
+                link_el = entry.find("link")
+                link = link_el["href"] if link_el and link_el.get("href") else f"https://www.reddit.com/r/{sub}"
+                
+                content_el = entry.find("content")
+                summary = f"Posted in r/{sub}"
+                if content_el:
+                    c_soup = BeautifulSoup(content_el.text, "html.parser")
+                    summary = c_soup.get_text(strip=True)[:300]
+
+                articles.append({
+                    "id": make_id(link),
+                    "source": "reddit",
+                    "source_label": f"r/{sub}",
+                    "title": title[:200],
+                    "summary": summary,
+                    "url": link,
+                    "published_at": pub_date.isoformat(),
+                    "scraped_at": now_iso(),
+                    "tags": ["AI", "reddit", sub],
+                    "saved": False,
+                    "thumbnail": None,
+                })
+        except Exception as e:
+            print(f"  [ERROR] Reddit RSS r/{sub} failed: {e}")
+    return articles, errors
+
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 def run():
     print("\n[VOXOBY] Scraper Starting...")
@@ -352,9 +400,17 @@ def run():
 
     # Reddit
     rd_articles, rd_errors = scrape_reddit()
+    
+    # --- REDDIT RSS FALLBACK ---
+    if not rd_articles:
+        print("  [Reddit] JSON API blocked. Trying RSS fallback...")
+        rss_articles, rss_errors = scrape_reddit_rss()
+        rd_articles.extend(rss_articles)
+        rd_errors.extend(rss_errors)
+
     all_articles.extend(rd_articles)
     all_errors.extend(rd_errors)
-    if not rd_errors:
+    if not rd_errors and rd_articles:
         sources_scraped.append("reddit")
 
     # Deduplicate by ID
