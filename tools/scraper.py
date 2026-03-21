@@ -45,7 +45,7 @@ HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
         "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/122.0.0.0 Safari/537.36 blast-scraper/1.0"
+        "Chrome/122.0.0.0 Safari/537.36 blast-news-search/1.1 (by /u/madhavagarwal1234)"
     )
 }
 CUTOFF = datetime.now(timezone.utc) - timedelta(hours=24)
@@ -271,7 +271,16 @@ def scrape_reddit() -> tuple[list[dict], list[str]]:
         api_url = f"https://www.reddit.com/r/{sub}/new.json?limit=25"
         print(f"  [Reddit] Fetching r/{sub} ...")
         try:
+            # Add a small delay between subreddits to be nice to Reddit
+            if articles: time.sleep(2)
+            
             resp = requests.get(api_url, headers=HEADERS, timeout=15)
+            # Handle specific Reddit 403/429 blocking
+            if resp.status_code == 403:
+                print(f"  [Reddit] Blocked from r/{sub} (403). Try again later.")
+                errors.append(f"Reddit r/{sub} blocked (403). Visit Reddit to authenticate.")
+                continue
+            
             resp.raise_for_status()
             data = resp.json()
             posts = data.get("data", {}).get("children", [])
