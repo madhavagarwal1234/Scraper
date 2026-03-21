@@ -1117,9 +1117,15 @@ async function fetchRedditClientSide() {
 
     for (const sub of subs) {
         try {
-            const res = await fetch(`https://www.reddit.com/r/${sub}/new.json?limit=25`);
+            // Use a CORS proxy to bypass browser security blocks on Reddit's domain
+            const redditUrl = `https://www.reddit.com/r/${sub}/new.json?limit=25`;
+            const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(redditUrl)}`;
+            
+            const res = await fetch(proxyUrl);
             if (!res.ok) continue;
-            const json = await res.json();
+            
+            const dataWrapper = await res.json();
+            const json = JSON.parse(dataWrapper.contents);
             const posts = json.data?.children || [];
 
             posts.forEach(post => {
