@@ -45,7 +45,7 @@ HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
         "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/122.0.0.0 Safari/537.36 blast-news-search/1.1 (by /u/madhavagarwal1234)"
+        "Chrome/123.0.0.0 Safari/537.36 blast-news-app/1.2 (contact: madhav.ai@voxoby.com)"
     )
 }
 CUTOFF = datetime.now(timezone.utc) - timedelta(hours=24)
