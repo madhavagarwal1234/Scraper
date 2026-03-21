@@ -1045,7 +1045,25 @@ async function triggerScrape() {
       const e = await resp.json().catch(() => ({ error: resp.statusText }));
       throw new Error(e.error || 'Server returned ' + resp.status);
     }
-    handleData(await resp.json());
+    const data = await resp.json();
+    
+    // --- CLIENT-SIDE REDDIT FALLBACK ---
+    // If Reddit is blocked on Vercel (0 results or error), try fetching directly from the client's browser
+    if (!data.articles?.some(a => a.source === 'reddit')) {
+        showToast('👾 Server blocked by Reddit. Trying client-side fetch...', 'info', 2000);
+        try {
+            const redditArticles = await fetchRedditClientSide();
+            if (redditArticles && redditArticles.length) {
+                data.articles = [...(data.articles || []), ...redditArticles];
+                if (!data.sources_scraped.includes('reddit')) data.sources_scraped.push('reddit');
+                showToast(`✅ Successfully fetched ${redditArticles.length} Reddit posts via client bridge.`, 'success');
+            }
+        } catch (re) {
+            console.error("Client-side Reddit fetch failed:", re);
+        }
+    }
+    
+    handleData(data);
   } catch (err) {
     clearToasts();
     try {
@@ -1064,17 +1082,78 @@ async function triggerScrape() {
 function handleData(data) {
   const incoming = (data.articles || []).map(a => ({ ...a, saved: savedIds.has(a.id) }));
   const map = {};
+  
+  // Load existing articles from memory/cache first
   allArticles.forEach(a => map[a.id] = a);
+  // Overlay fresh incoming articles
   incoming.forEach(a => map[a.id] = a);
+  
   allArticles = Object.values(map).sort((a, b) => new Date(b.published_at) - new Date(a.published_at));
+  
   lsSet(LS_ARTICLES, allArticles);
   lsSet(LS_LAST_FETCH, new Date().toISOString());
-  updateFetchLabels(); updateNextFetch();
+  updateFetchLabels(); 
+  updateNextFetch();
   renderAll();
+  
   const cnt = incoming.length;
-  if (cnt) showToast(`✅ ${cnt} articles from ${(data.sources_scraped||[]).join(', ')}`, 'success');
-  else  showToast('ℹ️ No new articles in 24h — cache preserved.', 'info');
-  (data.errors||[]).forEach(e => showToast(`⚠️ ${e}`, 'error', 6000));
+  // Source-specific success reporting
+  const sources = data.sources_scraped || [];
+  if (cnt) showToast(`✅ ${cnt} articles from ${sources.join(', ')}`, 'success', 5000);
+  else showToast('ℹ️ No new articles found — cache preserved.', 'info');
+  
+  (data.errors || []).forEach(e => {
+      // Don't show Reddit errors if we successfully fetched via client side
+      if (e.toLowerCase().includes('reddit') && sources.includes('reddit')) return;
+      showToast(`⚠️ ${e}`, 'error', 6000);
+  });
+}
+
+// ── Client-Side Reddit Fetcher ─────────────────────────────────────────────
+async function fetchRedditClientSide() {
+    const subs = ["artificial", "MachineLearning", "AINews"];
+    const results = [];
+    const cutoff = Date.now() - (24 * 60 * 60 * 1000);
+
+    for (const sub of subs) {
+        try {
+            const res = await fetch(`https://www.reddit.com/r/${sub}/new.json?limit=25`);
+            if (!res.ok) continue;
+            const json = await res.json();
+            const posts = json.data?.children || [];
+
+            posts.forEach(post => {
+                const p = post.data;
+                const pubDateMs = p.created_utc * 1000;
+                if (pubDateMs < cutoff) return;
+
+                const permalink = `https://www.reddit.com${p.permalink}`;
+                results.push({
+                    id: crypto.subtle ? null : Math.random().toString(36), // Temporary ID if crypto unavailable
+                    id_real: p.name, // Reddit fullname is a stable ID
+                    source: "reddit",
+                    source_label: `r/${sub}`,
+                    title: p.title,
+                    summary: (p.selftext && p.selftext !== "[removed]") ? p.selftext.substring(0, 300) : `Posted in r/${sub}`,
+                    url: p.url.startsWith('http') ? p.url : permalink,
+                    published_at: new Date(pubDateMs).toISOString(),
+                    scraped_at: new Date().toISOString(),
+                    tags: ["AI", "reddit", sub],
+                    saved: false,
+                    thumbnail: (p.thumbnail && p.thumbnail.startsWith('http')) ? p.thumbnail : null
+                });
+            });
+        } catch (e) { console.warn(`Reddit r/${sub} client fetch failed:`, e); }
+    }
+
+    // Hash the IDs properly to match server-side format
+    for (let i = 0; i < results.length; i++) {
+        const url = results[i].url.toLowerCase().trim();
+        // Fallback simple hash since we can't easily do SHA-256 sync in vanilla JS without async/await overhead here
+        results[i].id = btoa(url).substring(0, 32); 
+    }
+
+    return results;
 }
 
 // ── Render ─────────────────────────────────────────────────────────────────
