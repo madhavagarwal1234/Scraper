@@ -1094,7 +1094,16 @@ function handleData(data) {
   });
   
   // Then, overwrite/add the fresh incoming articles
-  incoming.forEach(a => map[a.id] = a);
+  incoming.forEach(a => {
+    if (map[a.id]) {
+      // It already exists! It is NOT brand new.
+      // We keep the old published_at timestamp so it doesn't jump to the top!
+      map[a.id] = { ...a, published_at: map[a.id].published_at, is_brand_new: false };
+    } else {
+      // A truly new article
+      map[a.id] = { ...a, is_brand_new: true };
+    }
+  });
   
   // 3. Sort:
   // First priority: is_brand_new (True comes before False)
