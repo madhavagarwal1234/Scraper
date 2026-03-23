@@ -1080,15 +1080,30 @@ async function triggerScrape() {
 }
 
 function handleData(data) {
-  const incoming = (data.articles || []).map(a => ({ ...a, saved: savedIds.has(a.id) }));
+  // 1. Mark fresh incoming articles with a special flag
+  const incoming = (data.articles || []).map(a => ({ ...a, saved: savedIds.has(a.id), is_brand_new: true }));
+  
+  // 2. We want to combine these with the previous articles (allArticles)
+  // to keep the history while putting fresh ones at the top.
   const map = {};
   
-  // Load existing articles from memory/cache first
-  allArticles.forEach(a => map[a.id] = a);
-  // Overlay fresh incoming articles
+  // First, add ALL existing articles to the map
+  allArticles.forEach(a => {
+    // We mark existing ones as NO LONGER brand new since they were cached
+    map[a.id] = { ...a, is_brand_new: false };
+  });
+  
+  // Then, overwrite/add the fresh incoming articles
   incoming.forEach(a => map[a.id] = a);
   
-  allArticles = Object.values(map).sort((a, b) => new Date(b.published_at) - new Date(a.published_at));
+  // 3. Sort:
+  // First priority: is_brand_new (True comes before False)
+  // Second priority: published_at DESC (Newest publication dates first)
+  allArticles = Object.values(map).sort((a, b) => {
+    if (a.is_brand_new && !b.is_brand_new) return -1;
+    if (!a.is_brand_new && b.is_brand_new) return 1;
+    return new Date(b.published_at) - new Date(a.published_at);
+  });
   
   lsSet(LS_ARTICLES, allArticles);
   lsSet(LS_LAST_FETCH, new Date().toISOString());

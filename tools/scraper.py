@@ -48,8 +48,6 @@ HEADERS = {
         "Chrome/123.0.0.0 Safari/537.36 blast-news-app/1.2 (contact: madhav.ai@voxoby.com)"
     )
 }
-CUTOFF = datetime.now(timezone.utc) - timedelta(hours=24)
-
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 def make_id(url: str) -> str:
@@ -61,10 +59,10 @@ def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def is_within_24h(dt: datetime) -> bool:
+def is_within_24h(dt: datetime, cutoff: datetime) -> bool:
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)
-    return dt >= CUTOFF
+    return dt >= cutoff
 
 
 def safe_thumbnail(thumb: str | None) -> str | None:
@@ -77,7 +75,7 @@ def safe_thumbnail(thumb: str | None) -> str | None:
 
 # ── Scrapers ──────────────────────────────────────────────────────────────────
 
-def scrape_bensbites() -> tuple[list[dict], list[str]]:
+def scrape_bensbites(cutoff: datetime) -> tuple[list[dict], list[str]]:
     articles, errors = [], []
     url = "https://www.bensbites.com/archive"
     print(f"  [Ben's Bites] Fetching {url} ...")
@@ -122,7 +120,7 @@ def scrape_bensbites() -> tuple[list[dict], list[str]]:
                         pass
 
             # If we cannot determine the date, include it (we're on the archive page so recent)
-            if pub_date and not is_within_24h(pub_date):
+            if pub_date and not is_within_24h(pub_date, cutoff):
                 continue
 
             # If pub_date is unknown, default to now (conservative approach for archive page)
@@ -171,7 +169,7 @@ def scrape_bensbites() -> tuple[list[dict], list[str]]:
     return articles, errors
 
 
-def scrape_airundown() -> tuple[list[dict], list[str]]:
+def scrape_airundown(cutoff: datetime) -> tuple[list[dict], list[str]]:
     articles, errors = [], []
     url = "https://www.therundown.ai/archive"
     print(f"  [AI Rundown] Fetching {url} ...")
@@ -216,7 +214,7 @@ def scrape_airundown() -> tuple[list[dict], list[str]]:
                     except ValueError:
                         pass
 
-            if pub_date and not is_within_24h(pub_date):
+            if pub_date and not is_within_24h(pub_date, cutoff):
                 continue
             if pub_date is None:
                 pub_date = datetime.now(timezone.utc)
@@ -263,7 +261,7 @@ def scrape_airundown() -> tuple[list[dict], list[str]]:
     return articles, errors
 
 
-def scrape_reddit() -> tuple[list[dict], list[str]]:
+def scrape_reddit(cutoff: datetime) -> tuple[list[dict], list[str]]:
     articles, errors = [], []
     subreddits = ["artificial", "MachineLearning", "AINews"]
 
@@ -290,7 +288,7 @@ def scrape_reddit() -> tuple[list[dict], list[str]]:
                 created_utc = p.get("created_utc", 0)
                 pub_date = datetime.fromtimestamp(created_utc, tz=timezone.utc)
 
-                if not is_within_24h(pub_date):
+                if not is_within_24h(pub_date, cutoff):
                     continue
 
                 title = p.get("title", "").strip()
@@ -326,7 +324,7 @@ def scrape_reddit() -> tuple[list[dict], list[str]]:
     return articles, errors
 
 
-def scrape_reddit_rss() -> tuple[list[dict], list[str]]:
+def scrape_reddit_rss(cutoff: datetime) -> tuple[list[dict], list[str]]:
     """Backup Reddit scraper using RSS feeds (often less restricted than JSON API)."""
     articles, errors = [], []
     subreddits = ["artificial", "MachineLearning", "AINews"]
@@ -343,7 +341,7 @@ def scrape_reddit_rss() -> tuple[list[dict], list[str]]:
                 up_el = entry.find("updated")
                 if not up_el: continue
                 pub_date = datetime.fromisoformat(up_el.text.replace("Z", "+00:00"))
-                if not is_within_24h(pub_date): continue
+                if not is_within_24h(pub_date, cutoff): continue
 
                 tit_el = entry.find("title")
                 title = tit_el.text if tit_el else "Reddit Post"
@@ -376,8 +374,9 @@ def scrape_reddit_rss() -> tuple[list[dict], list[str]]:
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 def run():
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
     print("\n[VOXOBY] Scraper Starting...")
-    print(f"   Cutoff: {CUTOFF.isoformat()}")
+    print(f"   Cutoff: {cutoff.isoformat()}")
     print(f"   Output: {OUTPUT_FILE}\n")
 
     all_articles: list[dict] = []
@@ -385,26 +384,26 @@ def run():
     sources_scraped: list[str] = []
 
     # Ben's Bites
-    bb_articles, bb_errors = scrape_bensbites()
+    bb_articles, bb_errors = scrape_bensbites(cutoff)
     all_articles.extend(bb_articles)
     all_errors.extend(bb_errors)
     if not bb_errors:
         sources_scraped.append("bensbites")
 
     # AI Rundown
-    ar_articles, ar_errors = scrape_airundown()
+    ar_articles, ar_errors = scrape_airundown(cutoff)
     all_articles.extend(ar_articles)
     all_errors.extend(ar_errors)
     if not ar_errors:
         sources_scraped.append("airundown")
 
     # Reddit
-    rd_articles, rd_errors = scrape_reddit()
+    rd_articles, rd_errors = scrape_reddit(cutoff)
     
     # --- REDDIT RSS FALLBACK ---
     if not rd_articles:
         print("  [Reddit] JSON API blocked. Trying RSS fallback...")
-        rss_articles, rss_errors = scrape_reddit_rss()
+        rss_articles, rss_errors = scrape_reddit_rss(cutoff)
         rd_articles.extend(rss_articles)
         rd_errors.extend(rss_errors)
 
